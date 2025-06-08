@@ -170,7 +170,21 @@ def step_2_data_exploration():
         return
     
     try:
-        df = db_manager.load_dataset(st.session_state.dataset_id)
+        # Use processed data if available, otherwise use original
+        if st.session_state.processed_data is not None:
+            df = st.session_state.processed_data
+            st.info("📊 Showing processed data. Use 'Load Original Data' to reset.")
+            if st.button("🔄 Load Original Data"):
+                st.session_state.processed_data = None
+                st.rerun()
+        else:
+            df = db_manager.load_dataset(st.session_state.dataset_id)
+        
+        # Refresh button for current view
+        col_refresh1, col_refresh2 = st.columns([6, 1])
+        with col_refresh2:
+            if st.button("🔄 Refresh", key="refresh_exploration"):
+                st.rerun()
         
         tab1, tab2, tab3, tab4 = st.tabs(["Overview", "Data Quality", "Distributions", "Correlations"])
         
@@ -360,8 +374,15 @@ def step_3_feature_engineering():
         # Use processed data if available, otherwise use original
         if st.session_state.processed_data is not None:
             df = st.session_state.processed_data
+            st.info("📊 Using processed data from previous steps.")
         else:
             df = db_manager.load_dataset(st.session_state.dataset_id)
+        
+        # Refresh button for current view
+        col_refresh1, col_refresh2 = st.columns([6, 1])
+        with col_refresh2:
+            if st.button("🔄 Refresh", key="refresh_feature_eng"):
+                st.rerun()
         
         tab1, tab2, tab3, tab4 = st.tabs(["Target Selection", "Feature Creation", "Feature Selection", "Preprocessing"])
         
@@ -621,6 +642,12 @@ def step_4_model_building():
         X = df[st.session_state.feature_columns]
         y = df[st.session_state.target_column]
         
+        # Refresh button for current view
+        col_refresh1, col_refresh2 = st.columns([6, 1])
+        with col_refresh2:
+            if st.button("🔄 Refresh", key="refresh_model_building"):
+                st.rerun()
+        
         tab1, tab2, tab3 = st.tabs(["Train-Test Split", "Model Training", "Hyperparameter Tuning"])
         
         with tab1:
@@ -867,6 +894,12 @@ def step_5_model_evaluation():
         return
     
     try:
+        # Refresh button for current view
+        col_refresh1, col_refresh2 = st.columns([6, 1])
+        with col_refresh2:
+            if st.button("🔄 Refresh", key="refresh_model_eval"):
+                st.rerun()
+        
         tab1, tab2, tab3, tab4 = st.tabs(["Performance Metrics", "ROC & Precision-Recall", "Feature Importance", "Model Comparison"])
         
         with tab1:
@@ -1042,6 +1075,12 @@ def step_6_predictions():
         return
     
     try:
+        # Refresh button for current view
+        col_refresh1, col_refresh2 = st.columns([6, 1])
+        with col_refresh2:
+            if st.button("🔄 Refresh", key="refresh_predictions"):
+                st.rerun()
+        
         tab1, tab2, tab3 = st.tabs(["Single Prediction", "Batch Prediction", "Model Export"])
         
         with tab1:
