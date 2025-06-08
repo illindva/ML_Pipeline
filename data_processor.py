@@ -20,7 +20,8 @@ class DataProcessor:
     
     def clean_data(self, df: pd.DataFrame, handle_missing: str = "None", 
                    remove_duplicates: bool = False, outlier_method: str = "None",
-                   fix_dtypes: bool = True) -> pd.DataFrame:
+                   fix_dtypes: bool = True, drop_empty_columns: bool = False,
+                   value_mappings: Dict[str, str] = {}) -> pd.DataFrame:
         """Clean the dataset based on specified parameters."""
         df_cleaned = df.copy()
         
@@ -72,6 +73,19 @@ class DataProcessor:
                 iso_forest = IsolationForest(contamination=0.1, random_state=42)
                 outliers = iso_forest.fit_predict(df_cleaned[numeric_cols])
                 df_cleaned = df_cleaned[outliers == 1]
+        
+        # Drop columns with all null values
+        if drop_empty_columns:
+            null_columns = df_cleaned.columns[df_cleaned.isnull().all()].tolist()
+            if null_columns:
+                df_cleaned = df_cleaned.drop(columns=null_columns)
+        
+        # Apply value mappings for categorical columns
+        if value_mappings:
+            for old_value, new_value in value_mappings.items():
+                # Find which column contains this value and replace it
+                for col in df_cleaned.select_dtypes(include=['object']).columns:
+                    df_cleaned[col] = df_cleaned[col].replace(old_value, new_value)
         
         # Fix data types
         if fix_dtypes:

@@ -186,7 +186,7 @@ def step_2_data_exploration():
                 st.subheader("Data Types")
                 dtype_df = pd.DataFrame({
                     'Column': df.columns,
-                    'Data Type': df.dtypes,
+                    'Data Type': df.dtypes.astype(str),
                     'Non-Null Count': df.count(),
                     'Unique Values': df.nunique()
                 })
@@ -210,7 +210,7 @@ def step_2_data_exploration():
             # Data cleaning options
             st.subheader("Data Cleaning Options")
             
-            col1, col2 = st.columns(2)
+            col1, col2, col3 = st.columns(3)
             
             with col1:
                 handle_missing = st.selectbox(
@@ -227,6 +227,49 @@ def step_2_data_exploration():
                 )
                 
                 fix_dtypes = st.checkbox("Auto-fix data types", value=True)
+                
+            with col3:
+                drop_empty_columns = st.checkbox("Drop columns with all null values")
+                modify_categorical = st.checkbox("Modify incorrect categorical values")
+            
+            # Categorical value modification interface
+            value_mappings = {}
+            if modify_categorical:
+                st.subheader("Categorical Value Modification")
+                categorical_cols = df.select_dtypes(include=['object']).columns.tolist()
+                
+                if categorical_cols:
+                    selected_cat_col = st.selectbox("Select categorical column to modify", categorical_cols)
+                    
+                    if selected_cat_col:
+                        unique_values = df[selected_cat_col].dropna().unique()
+                        st.write(f"Current unique values in '{selected_cat_col}': {list(unique_values[:10])}{'...' if len(unique_values) > 10 else ''}")
+                        
+                        # Value mapping interface
+                        st.write("**Map incorrect values to correct ones:**")
+                        
+                        col_map1, col_map2 = st.columns(2)
+                        with col_map1:
+                            st.write("Original Value")
+                        with col_map2:
+                            st.write("New Value")
+                        
+                        for i, value in enumerate(unique_values[:10]):  # Limit to first 10 for UI
+                            col_map1, col_map2 = st.columns(2)
+                            with col_map1:
+                                st.text(str(value))
+                            with col_map2:
+                                new_value = st.text_input(f"", value=str(value), key=f"map_{selected_cat_col}_{i}", label_visibility="collapsed")
+                                if new_value != str(value):
+                                    value_mappings[value] = new_value
+                        
+                        if len(unique_values) > 10:
+                            st.info(f"Showing first 10 values. Total unique values: {len(unique_values)}")
+                        
+                        if value_mappings:
+                            st.write("**Mappings to apply:**")
+                            for old_val, new_val in value_mappings.items():
+                                st.write(f"'{old_val}' → '{new_val}'")
             
             if st.button("Apply Data Cleaning", type="primary"):
                 try:
@@ -235,7 +278,9 @@ def step_2_data_exploration():
                         handle_missing=handle_missing,
                         remove_duplicates=remove_duplicates,
                         outlier_method=outlier_method,
-                        fix_dtypes=fix_dtypes
+                        fix_dtypes=fix_dtypes,
+                        drop_empty_columns=drop_empty_columns,
+                        value_mappings=value_mappings if modify_categorical else {}
                     )
                     
                     # Save cleaned data
