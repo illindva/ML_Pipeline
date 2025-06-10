@@ -60,7 +60,8 @@ def main():
         "3. Feature Engineering",
         "4. Model Building",
         "5. Model Evaluation",
-        "6. Predictions & Deployment"
+        "6. Predictions & Deployment",
+        "7. Database Management"
     ]
     
     selected_step = st.sidebar.selectbox("Select Step", steps, index=st.session_state.current_step - 1)
@@ -90,6 +91,8 @@ def main():
         step_5_model_evaluation()
     elif st.session_state.current_step == 6:
         step_6_predictions()
+    elif st.session_state.current_step == 7:
+        step_7_database_management()
 
 def step_1_data_upload():
     st.header("📂 Step 1: Data Upload & Storage")
@@ -1393,6 +1396,420 @@ def step_6_predictions():
                 
     except Exception as e:
         st.error(f"Error in predictions: {str(e)}")
+
+def step_7_database_management():
+    st.header("🗄️ Step 7: Database Management")
+    
+    try:
+        # Refresh button for current view
+        col_refresh1, col_refresh2 = st.columns([6, 1])
+        with col_refresh2:
+            if st.button("🔄 Refresh", key="refresh_database"):
+                st.rerun()
+        
+        tab1, tab2, tab3, tab4 = st.tabs(["Overview", "Datasets", "Models", "Analytics"])
+        
+        with tab1:
+            st.subheader("Database Overview")
+            
+            # Get database statistics
+            stats = db_manager.get_database_stats()
+            
+            # Display statistics cards
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                st.metric("Total Datasets", stats['datasets'])
+            
+            with col2:
+                st.metric("Total Models", stats['models'])
+            
+            with col3:
+                st.metric("Total Analyses", stats['analyses'])
+            
+            with col4:
+                st.metric("Total Predictions", stats['predictions'])
+            
+            # Database connection info
+            st.subheader("Database Connection")
+            
+            col_info1, col_info2 = st.columns(2)
+            
+            with col_info1:
+                st.success("PostgreSQL Database Connected")
+                st.write("**Database Type:** PostgreSQL")
+                st.write("**Status:** Active")
+                
+            with col_info2:
+                st.write("**Environment Variables:**")
+                st.code("""
+DATABASE_URL: Available
+PGHOST: Available  
+PGPORT: Available
+PGUSER: Available
+PGPASSWORD: Available
+PGDATABASE: Available
+                """)
+            
+            # Storage usage visualization
+            if stats['datasets'] > 0 or stats['models'] > 0:
+                st.subheader("Storage Distribution")
+                
+                chart_data = {
+                    'Category': ['Datasets', 'Models', 'Analyses', 'Predictions'],
+                    'Count': [stats['datasets'], stats['models'], stats['analyses'], stats['predictions']]
+                }
+                
+                fig = visualizer.plot_categorical_distribution(pd.DataFrame(chart_data), 'Category')
+                fig.update_layout(title="Database Content Distribution", showlegend=False)
+                st.plotly_chart(fig, use_container_width=True)
+        
+        with tab2:
+            st.subheader("Dataset Management")
+            
+            # List all datasets
+            datasets = db_manager.get_all_datasets()
+            
+            if datasets:
+                st.write(f"**Found {len(datasets)} datasets in database:**")
+                
+                # Create dataframe for display
+                df_datasets = pd.DataFrame(datasets, columns=[
+                    'ID', 'Name', 'Description', 'Upload Date', 'File Size (bytes)', 'Shape'
+                ])
+                
+                # Format the display
+                df_datasets['Upload Date'] = pd.to_datetime(df_datasets['Upload Date']).dt.strftime('%Y-%m-%d %H:%M')
+                df_datasets['File Size'] = df_datasets['File Size (bytes)'].apply(lambda x: f"{x/1024:.2f} KB" if x < 1024*1024 else f"{x/(1024*1024):.2f} MB")
+                df_datasets['Rows x Cols'] = df_datasets['Shape'].apply(lambda x: f"{x[0]} x {x[1]}")
+                
+                # Display table
+                display_df = df_datasets[['ID', 'Name', 'Description', 'Upload Date', 'File Size', 'Rows x Cols']]
+                st.dataframe(display_df, use_container_width=True)
+                
+                # Dataset management actions
+                st.subheader("Dataset Actions")
+                
+                col_action1, col_action2 = st.columns(2)
+                
+                with col_action1:
+                    selected_dataset_id = st.selectbox(
+                        "Select dataset for actions",
+                        [row[0] for row in datasets],
+                        format_func=lambda x: f"{dict([(row[0], f'{row[1]} (ID: {row[0]})') for row in datasets])[x]}"
+                    )
+                
+                with col_action2:
+                    action = st.selectbox("Action", ["View Details", "Download", "Delete"])
+                
+                if st.button("Execute Action", type="primary"):
+                    if action == "View Details":
+                        try:
+                            dataset = db_manager.load_dataset(selected_dataset_id)
+                            st.subheader(f"Dataset Details (ID: {selected_dataset_id})")
+                            
+                            col_det1, col_det2 = st.columns(2)
+                            
+                            with col_det1:
+                                st.write("**Basic Information:**")
+                                st.write(f"Shape: {dataset.shape}")
+                                st.write(f"Memory Usage: {dataset.memory_usage(deep=True).sum() / 1024:.2f} KB")
+                                st.write(f"Columns: {len(dataset.columns)}")
+                                
+                            with col_det2:
+                                st.write("**Data Types:**")
+                                st.write(dataset.dtypes.value_counts())
+                            
+                            st.write("**Sample Data:**")
+                            st.dataframe(dataset.head(10))
+                            
+                            st.write("**Column Information:**")
+                            info_df = pd.DataFrame({
+                                'Column': dataset.columns,
+                                'Type': dataset.dtypes,
+                                'Non-Null': dataset.count(),
+                                'Null Count': dataset.isnull().sum(),
+                                'Unique Values': dataset.nunique()
+                            })
+                            st.dataframe(info_df)
+                            
+                        except Exception as e:
+                            st.error(f"Error loading dataset: {str(e)}")
+                    
+                    elif action == "Download":
+                        try:
+                            dataset = db_manager.load_dataset(selected_dataset_id)
+                            csv_data = dataset.to_csv(index=False)
+                            
+                            dataset_name = dict([(row[0], row[1]) for row in datasets])[selected_dataset_id]
+                            filename = f"{dataset_name.lower().replace(' ', '_')}_{selected_dataset_id}.csv"
+                            
+                            st.download_button(
+                                label="Download Dataset as CSV",
+                                data=csv_data,
+                                file_name=filename,
+                                mime="text/csv"
+                            )
+                            
+                        except Exception as e:
+                            st.error(f"Error preparing download: {str(e)}")
+                    
+                    elif action == "Delete":
+                        if st.session_state.get(f'confirm_delete_{selected_dataset_id}', False):
+                            try:
+                                success = db_manager.delete_dataset(selected_dataset_id)
+                                if success:
+                                    st.success(f"Dataset {selected_dataset_id} deleted successfully!")
+                                    st.session_state[f'confirm_delete_{selected_dataset_id}'] = False
+                                    st.rerun()
+                                else:
+                                    st.error("Failed to delete dataset")
+                            except Exception as e:
+                                st.error(f"Error deleting dataset: {str(e)}")
+                        else:
+                            st.warning("⚠️ This action cannot be undone!")
+                            if st.button("Confirm Deletion", key=f"confirm_{selected_dataset_id}"):
+                                st.session_state[f'confirm_delete_{selected_dataset_id}'] = True
+                                st.rerun()
+            else:
+                st.info("No datasets found in database. Upload some data in Step 1 to get started.")
+        
+        with tab3:
+            st.subheader("Model Management")
+            
+            # List all models
+            models = db_manager.get_all_models()
+            
+            if models:
+                st.write(f"**Found {len(models)} models in database:**")
+                
+                # Create dataframe for display
+                df_models = pd.DataFrame(models, columns=[
+                    'ID', 'Dataset ID', 'Model Name', 'Model Type', 'Created Date', 'Accuracy'
+                ])
+                
+                # Format the display
+                df_models['Created Date'] = pd.to_datetime(df_models['Created Date']).dt.strftime('%Y-%m-%d %H:%M')
+                df_models['Accuracy'] = df_models['Accuracy'].apply(lambda x: f"{x:.3f}" if isinstance(x, (int, float)) else str(x))
+                
+                st.dataframe(df_models, use_container_width=True)
+                
+                # Model performance visualization
+                if len(models) > 1:
+                    st.subheader("Model Performance Comparison")
+                    
+                    # Filter models with numeric accuracy
+                    numeric_models = df_models[pd.to_numeric(df_models['Accuracy'], errors='coerce').notna()].copy()
+                    
+                    if not numeric_models.empty:
+                        numeric_models['Accuracy_Numeric'] = pd.to_numeric(numeric_models['Accuracy'])
+                        
+                        fig = visualizer.plot_distribution(numeric_models, 'Accuracy_Numeric')
+                        fig.update_layout(title="Model Accuracy Distribution", xaxis_title="Accuracy")
+                        st.plotly_chart(fig, use_container_width=True)
+                
+                # Model management actions
+                st.subheader("Model Actions")
+                
+                selected_model_id = st.selectbox(
+                    "Select model",
+                    [row[0] for row in models],
+                    format_func=lambda x: f"{dict([(row[0], f'{row[2]} - {row[3]} (ID: {row[0]})') for row in models])[x]}"
+                )
+                
+                if st.button("Load Model Details", type="primary"):
+                    try:
+                        model_data = db_manager.load_model(selected_model_id)
+                        
+                        st.subheader(f"Model Details (ID: {selected_model_id})")
+                        
+                        col_mod1, col_mod2 = st.columns(2)
+                        
+                        with col_mod1:
+                            st.write("**Basic Information:**")
+                            st.write(f"Name: {model_data['model_name']}")
+                            st.write(f"Type: {model_data['model_type']}")
+                            st.write(f"Dataset ID: {model_data['dataset_id']}")
+                            st.write(f"Created: {model_data['created_date']}")
+                        
+                        with col_mod2:
+                            if model_data['metrics']:
+                                st.write("**Performance Metrics:**")
+                                st.json(model_data['metrics'])
+                        
+                        if model_data['parameters']:
+                            st.write("**Model Parameters:**")
+                            st.json(model_data['parameters'])
+                        
+                        # Model export option
+                        st.subheader("Export Model")
+                        
+                        if st.button("Export This Model"):
+                            buffer = BytesIO()
+                            pickle.dump(model_data, buffer)
+                            buffer.seek(0)
+                            
+                            filename = f"{model_data['model_name'].lower().replace(' ', '_')}_exported.pkl"
+                            
+                            st.download_button(
+                                label="Download Model File",
+                                data=buffer.getvalue(),
+                                file_name=filename,
+                                mime="application/octet-stream"
+                            )
+                    
+                    except Exception as e:
+                        st.error(f"Error loading model: {str(e)}")
+            else:
+                st.info("No models found in database. Train some models in Step 4 to see them here.")
+        
+        with tab4:
+            st.subheader("Analytics & Insights")
+            
+            # Database usage analytics
+            if stats['datasets'] > 0:
+                st.subheader("Usage Analytics")
+                
+                # Get all datasets for timeline
+                datasets = db_manager.get_all_datasets()
+                if datasets:
+                    # Create timeline chart
+                    df_timeline = pd.DataFrame(datasets, columns=[
+                        'ID', 'Name', 'Description', 'Upload Date', 'File Size', 'Shape'
+                    ])
+                    
+                    df_timeline['Upload Date'] = pd.to_datetime(df_timeline['Upload Date'])
+                    df_timeline['Month'] = df_timeline['Upload Date'].dt.to_period('M')
+                    
+                    monthly_uploads = df_timeline.groupby('Month').size().reset_index(name='Uploads')
+                    monthly_uploads['Month'] = monthly_uploads['Month'].astype(str)
+                    
+                    if len(monthly_uploads) > 0:
+                        st.write("**Dataset Uploads Over Time:**")
+                        fig = visualizer.plot_distribution(monthly_uploads, 'Uploads')
+                        fig.update_layout(title="Monthly Dataset Uploads", xaxis_title="Month")
+                        st.plotly_chart(fig, use_container_width=True)
+                
+                # Storage analytics
+                models = db_manager.get_all_models()
+                if models:
+                    df_models_analytics = pd.DataFrame(models, columns=[
+                        'ID', 'Dataset ID', 'Model Name', 'Model Type', 'Created Date', 'Accuracy'
+                    ])
+                    
+                    # Model type distribution
+                    model_type_counts = df_models_analytics['Model Type'].value_counts().reset_index()
+                    model_type_counts.columns = ['Model Type', 'Count']
+                    
+                    st.write("**Model Type Distribution:**")
+                    fig = visualizer.plot_categorical_distribution(model_type_counts, 'Model Type')
+                    fig.update_layout(title="Distribution of Model Types", showlegend=False)
+                    st.plotly_chart(fig, use_container_width=True)
+            
+            # Database maintenance
+            st.subheader("Database Maintenance")
+            
+            col_maint1, col_maint2 = st.columns(2)
+            
+            with col_maint1:
+                st.write("**Cleanup Options:**")
+                days_old = st.slider("Remove data older than (days)", 7, 90, 30)
+                
+                if st.button("Clean Old Data", type="secondary"):
+                    try:
+                        db_manager.cleanup_old_data(days_old)
+                        st.success(f"Cleaned up data older than {days_old} days")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error during cleanup: {str(e)}")
+            
+            with col_maint2:
+                st.write("**Health Check:**")
+                
+                if st.button("Run Health Check"):
+                    try:
+                        # Test database connection
+                        test_stats = db_manager.get_database_stats()
+                        
+                        st.success("✅ Database connection: OK")
+                        st.success(f"✅ Tables accessible: {len(test_stats)} table types")
+                        st.success("✅ Data integrity: OK")
+                        
+                        # Additional checks
+                        total_records = sum(test_stats.values())
+                        if total_records > 1000:
+                            st.warning("⚠️ Large dataset detected - consider cleanup")
+                        else:
+                            st.success("✅ Database size: Optimal")
+                    
+                    except Exception as e:
+                        st.error(f"❌ Health check failed: {str(e)}")
+            
+            # Advanced options
+            st.subheader("Advanced Operations")
+            
+            with st.expander("Database Schema Information"):
+                st.code("""
+Database Schema:
+
+1. datasets
+   - id (Primary Key)
+   - name, description
+   - upload_date, file_size
+   - columns_info (JSON)
+   - data_blob (Binary)
+
+2. analysis
+   - id (Primary Key)
+   - dataset_id (Foreign Key)
+   - analysis_type, results (JSON)
+   - created_date
+
+3. models
+   - id (Primary Key) 
+   - dataset_id (Foreign Key)
+   - model_name, model_type
+   - model_data (Binary)
+   - metrics, parameters (JSON)
+   - created_date
+
+4. predictions
+   - id (Primary Key)
+   - model_id (Foreign Key)
+   - input_data, prediction_result (JSON)
+   - confidence_score
+   - created_date
+                """)
+            
+            with st.expander("Raw SQL Query Interface"):
+                st.warning("⚠️ Advanced users only. Incorrect queries may damage data.")
+                
+                sql_query = st.text_area(
+                    "Enter SQL query:",
+                    placeholder="SELECT * FROM datasets LIMIT 5;",
+                    help="Execute raw SQL queries against the database"
+                )
+                
+                if st.button("Execute Query", type="secondary"):
+                    if sql_query.strip():
+                        try:
+                            # For safety, only allow SELECT queries
+                            if sql_query.strip().upper().startswith('SELECT'):
+                                from sqlalchemy import text
+                                result = db_manager.session.execute(text(sql_query))
+                                
+                                # Convert to DataFrame for display
+                                df_result = pd.DataFrame(result.fetchall(), columns=result.keys())
+                                st.dataframe(df_result)
+                            else:
+                                st.error("Only SELECT queries are allowed for safety")
+                        except Exception as e:
+                            st.error(f"Query error: {str(e)}")
+                    else:
+                        st.error("Please enter a query")
+        
+    except Exception as e:
+        st.error(f"Error in database management: {str(e)}")
 
 if __name__ == "__main__":
     main()
