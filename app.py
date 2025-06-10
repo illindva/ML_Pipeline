@@ -8,7 +8,7 @@ import base64
 from io import BytesIO
 
 # Import custom modules
-from database_postgresql import DatabaseManager
+from config import get_database_manager, get_database_info, APP_TITLE, APP_DESCRIPTION
 from data_processor import DataProcessor
 from model_builder import ModelBuilder
 from visualizations import Visualizer
@@ -39,7 +39,7 @@ if 'target_column' not in st.session_state:
 # Initialize components
 @st.cache_resource
 def initialize_components():
-    db_manager = DatabaseManager()
+    db_manager = get_database_manager()
     data_processor = DataProcessor()
     model_builder = ModelBuilder()
     visualizer = Visualizer()
@@ -1436,19 +1436,20 @@ def step_7_database_management():
             col_info1, col_info2 = st.columns(2)
             
             with col_info1:
-                st.success("PostgreSQL Database Connected")
-                st.write("**Database Type:** PostgreSQL")
+                st.success("SQLite Database Connected")
+                st.write("**Database Type:** SQLite")
                 st.write("**Status:** Active")
+                st.write("**File:** fraud_detection.db")
                 
             with col_info2:
-                st.write("**Environment Variables:**")
+                st.write("**Available Configurations:**")
                 st.code("""
-DATABASE_URL: Available
-PGHOST: Available  
-PGPORT: Available
-PGUSER: Available
-PGPASSWORD: Available
-PGDATABASE: Available
+Current: SQLite (Local)
+Available: PostgreSQL (via DATABASE_URL)
+
+To switch to PostgreSQL:
+- Change import in app.py
+- Use database_postgresql.py
                 """)
             
             # Storage usage visualization
@@ -1795,11 +1796,10 @@ Database Schema:
                         try:
                             # For safety, only allow SELECT queries
                             if sql_query.strip().upper().startswith('SELECT'):
-                                from sqlalchemy import text
-                                result = db_manager.session.execute(text(sql_query))
-                                
-                                # Convert to DataFrame for display
-                                df_result = pd.DataFrame(result.fetchall(), columns=result.keys())
+                                import sqlite3
+                                conn = sqlite3.connect('fraud_detection.db')
+                                df_result = pd.read_sql_query(sql_query, conn)
+                                conn.close()
                                 st.dataframe(df_result)
                             else:
                                 st.error("Only SELECT queries are allowed for safety")
