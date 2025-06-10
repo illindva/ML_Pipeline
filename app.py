@@ -8,7 +8,7 @@ import base64
 from io import BytesIO
 
 # Import custom modules
-from database import DatabaseManager
+from database_postgresql import DatabaseManager
 from data_processor import DataProcessor
 from model_builder import ModelBuilder
 from visualizations import Visualizer
