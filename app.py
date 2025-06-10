@@ -1436,20 +1436,28 @@ def step_7_database_management():
             col_info1, col_info2 = st.columns(2)
             
             with col_info1:
-                st.success("SQLite Database Connected")
-                st.write("**Database Type:** SQLite")
-                st.write("**Status:** Active")
-                st.write("**File:** fraud_detection.db")
+                db_info = get_database_info()
+                st.success(f"{db_info['type']} Database Connected")
+                st.write(f"**Database Type:** {db_info['type']}")
+                st.write(f"**Status:** {db_info['status']}")
+                if 'file' in db_info:
+                    st.write(f"**File:** {db_info['file']}")
+                elif 'url' in db_info:
+                    st.write("**Connection:** Configured")
                 
             with col_info2:
-                st.write("**Available Configurations:**")
+                st.write("**Database Features:**")
+                features = db_info.get('features', [])
+                for feature in features:
+                    st.write(f"• {feature}")
+                
+                st.write("**Switch Database:**")
                 st.code("""
 Current: SQLite (Local)
-Available: PostgreSQL (via DATABASE_URL)
+Available: PostgreSQL 
 
-To switch to PostgreSQL:
-- Change import in app.py
-- Use database_postgresql.py
+Set DATABASE_TYPE=postgresql 
+to use PostgreSQL backend
                 """)
             
             # Storage usage visualization
