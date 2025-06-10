@@ -18,6 +18,160 @@ class DataProcessor:
         self.encoders = {}
         self.feature_selectors = {}
     
+    def merge_csv_files(self, dataframes: List[pd.DataFrame], file_names: List[str], 
+                       merge_strategy: str = "auto") -> Tuple[pd.DataFrame, Dict[str, Any]]:
+        """
+        Merge multiple CSV files based on common columns.
+        
+        Args:
+            dataframes: List of pandas DataFrames
+            file_names: List of file names for reference
+            merge_strategy: 'auto', 'inner', 'outer', 'left', 'concatenate'
+        
+        Returns:
+            Merged DataFrame and merge report
+        """
+        if not dataframes or len(dataframes) == 1:
+            return dataframes[0] if dataframes else pd.DataFrame(), {"status": "single_file"}
+        
+        merge_report = {
+            "total_files": len(dataframes),
+            "file_names": file_names,
+            "original_shapes": [df.shape for df in dataframes],
+            "common_columns": [],
+            "merge_strategy_used": merge_strategy,
+            "warnings": []
+        }
+        
+        # Fix data types and handle timestamp issues for all dataframes
+        processed_dfs = []
+        for i, df in enumerate(dataframes):
+            df_processed = self._fix_arrow_compatibility(df.copy())
+            processed_dfs.append(df_processed)
+        
+        # Find common columns across all dataframes
+        all_columns = [set(df.columns) for df in processed_dfs]
+        common_columns = set.intersection(*all_columns) if all_columns else set()
+        merge_report["common_columns"] = list(common_columns)
+        
+        if merge_strategy == "concatenate":
+            # Simple concatenation - union of all columns
+            try:
+                merged_df = pd.concat(processed_dfs, ignore_index=True, sort=False)
+                merge_report["merge_type"] = "concatenation"
+                merge_report["final_shape"] = merged_df.shape
+                return merged_df, merge_report
+            except Exception as e:
+                merge_report["warnings"].append(f"Concatenation failed: {str(e)}")
+                # Fall back to merge strategy
+        
+        # Determine merge strategy automatically if needed
+        if merge_strategy == "auto":
+            if len(common_columns) >= 2:
+                # If we have multiple common columns, try to find key columns
+                potential_keys = []
+                for col in common_columns:
+                    # Check if column could be a key (unique values across files)
+                    is_potential_key = True
+                    for df in processed_dfs:
+                        if df[col].duplicated().any():
+                            is_potential_key = False
+                            break
+                    if is_potential_key:
+                        potential_keys.append(col)
+                
+                if potential_keys:
+                    merge_strategy = "inner"
+                    merge_report["merge_keys"] = potential_keys[:2]  # Use up to 2 keys
+                else:
+                    merge_strategy = "outer"
+                    merge_report["merge_keys"] = list(common_columns)[:2]
+            elif len(common_columns) == 1:
+                merge_strategy = "outer"
+                merge_report["merge_keys"] = list(common_columns)
+            else:
+                # No common columns - concatenate with file identifier
+                merge_strategy = "concatenate"
+        
+        if merge_strategy == "concatenate":
+            # Add file identifier column
+            for i, df in enumerate(processed_dfs):
+                df['source_file'] = file_names[i]
+            
+            merged_df = pd.concat(processed_dfs, ignore_index=True, sort=False)
+            merge_report["merge_type"] = "concatenation_with_source"
+        else:
+            # Perform merge operations
+            try:
+                merged_df = processed_dfs[0].copy()
+                merge_keys = merge_report.get("merge_keys", list(common_columns)[:2])
+                
+                for i in range(1, len(processed_dfs)):
+                    if merge_keys:
+                        merged_df = pd.merge(
+                            merged_df, 
+                            processed_dfs[i], 
+                            on=merge_keys, 
+                            how=merge_strategy,
+                            suffixes=('', f'_file{i+1}')
+                        )
+                    else:
+                        # No common columns - add as new columns with prefix
+                        df_with_prefix = processed_dfs[i].add_prefix(f'file{i+1}_')
+                        merged_df = pd.concat([merged_df, df_with_prefix], axis=1)
+                
+                merge_report["merge_type"] = f"{merge_strategy}_join"
+                
+            except Exception as e:
+                merge_report["warnings"].append(f"Merge failed: {str(e)}, falling back to concatenation")
+                # Fall back to concatenation
+                for i, df in enumerate(processed_dfs):
+                    df['source_file'] = file_names[i]
+                merged_df = pd.concat(processed_dfs, ignore_index=True, sort=False)
+                merge_report["merge_type"] = "concatenation_fallback"
+        
+        merge_report["final_shape"] = merged_df.shape
+        return merged_df, merge_report
+    
+    def _fix_arrow_compatibility(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Fix DataFrame for Arrow serialization compatibility."""
+        df_fixed = df.copy()
+        
+        for col in df_fixed.columns:
+            # Handle timestamp/datetime columns that cause Arrow issues
+            if 'datetime' in str(df_fixed[col].dtype) or 'timestamp' in str(df_fixed[col].dtype).lower():
+                try:
+                    # Convert to string format to avoid Arrow serialization issues
+                    df_fixed[col] = pd.to_datetime(df_fixed[col], errors='coerce')
+                    df_fixed[col] = df_fixed[col].dt.strftime('%Y-%m-%d %H:%M:%S')
+                except:
+                    # If conversion fails, convert to string
+                    df_fixed[col] = df_fixed[col].astype(str)
+            
+            # Handle object columns that might be dates
+            elif df_fixed[col].dtype == 'object':
+                # Check if it's a date-like column
+                try:
+                    sample = df_fixed[col].dropna().head(5)
+                    if len(sample) > 0:
+                        # Try to parse first few values as dates
+                        parsed_dates = 0
+                        for val in sample:
+                            try:
+                                pd.to_datetime(val)
+                                parsed_dates += 1
+                            except:
+                                pass
+                        
+                        # If most values parse as dates, convert to standard format
+                        if parsed_dates >= len(sample) * 0.6:
+                            df_fixed[col] = pd.to_datetime(df_fixed[col], errors='coerce')
+                            df_fixed[col] = df_fixed[col].dt.strftime('%Y-%m-%d %H:%M:%S')
+                except:
+                    pass
+        
+        return df_fixed
+    
     def clean_data(self, df: pd.DataFrame, handle_missing: str = "None", 
                    remove_duplicates: bool = False, outlier_method: str = "None",
                    fix_dtypes: bool = True, drop_empty_columns: bool = False,

@@ -97,73 +97,274 @@ def main():
 def step_1_data_upload():
     st.header("📂 Step 1: Data Upload & Storage")
     
-    col1, col2 = st.columns([2, 1])
+    # Upload mode selection
+    upload_mode = st.radio(
+        "Select upload mode:",
+        ["Single File", "Multiple CSV Files"],
+        help="Choose whether to upload one file or merge multiple CSV files"
+    )
     
-    with col1:
-        st.subheader("Upload Dataset")
-        uploaded_file = st.file_uploader(
-            "Choose a CSV or Excel file",
-            type=['csv', 'xlsx', 'xls'],
-            help="Upload your dataset for fraud detection analysis"
+    if upload_mode == "Single File":
+        # Single file upload
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            st.subheader("Upload Dataset")
+            uploaded_file = st.file_uploader(
+                "Choose a CSV or Excel file",
+                type=['csv', 'xlsx', 'xls'],
+                help="Upload your dataset for fraud detection analysis"
+            )
+            
+            if uploaded_file is not None:
+                try:
+                    # Read the file
+                    if uploaded_file.name.endswith('.csv'):
+                        df = pd.read_csv(uploaded_file)
+                    else:
+                        df = pd.read_excel(uploaded_file)
+                    
+                    # Fix Arrow compatibility
+                    df = data_processor._fix_arrow_compatibility(df)
+                    
+                    st.success(f"File loaded successfully! Shape: {df.shape}")
+                    
+                    # Display basic info
+                    st.subheader("Dataset Preview")
+                    st.dataframe(df.head(10))
+                    
+                    # Dataset metadata
+                    col_info1, col_info2 = st.columns(2)
+                    with col_info1:
+                        st.metric("Rows", df.shape[0])
+                        st.metric("Columns", df.shape[1])
+                    
+                    with col_info2:
+                        st.metric("Missing Values", df.isnull().sum().sum())
+                        st.metric("Memory Usage", f"{df.memory_usage(deep=True).sum() / 1024**2:.2f} MB")
+                    
+                    # Save dataset
+                    st.subheader("Save Dataset")
+                    dataset_name = st.text_input("Dataset Name", value=uploaded_file.name.split('.')[0])
+                    dataset_description = st.text_area("Description", placeholder="Brief description of the dataset...")
+                    
+                    if st.button("Save Dataset", type="primary"):
+                        try:
+                            dataset_id = db_manager.save_dataset(
+                                name=dataset_name,
+                                description=dataset_description,
+                                data=df
+                            )
+                            st.session_state.dataset_id = dataset_id
+                            st.session_state.current_data = df
+                            st.success(f"Dataset saved successfully with ID: {dataset_id}")
+                            st.balloons()
+                        except Exception as e:
+                            st.error(f"Error saving dataset: {str(e)}")
+                            
+                except Exception as e:
+                    st.error(f"Error loading file: {str(e)}")
+        
+        with col2:
+            st.subheader("Dataset Statistics")
+            if st.session_state.dataset_id:
+                try:
+                    df = db_manager.load_dataset(st.session_state.dataset_id)
+                    stats = utils.get_dataset_statistics(df)
+                    
+                    for key, value in stats.items():
+                        st.metric(key.replace('_', ' ').title(), value)
+                        
+                except Exception as e:
+                    st.error(f"Error loading dataset statistics: {str(e)}")
+    
+    else:
+        # Multiple CSV files upload
+        st.subheader("Multiple CSV Files Merge")
+        
+        uploaded_files = st.file_uploader(
+            "Choose CSV files to merge", 
+            type=['csv'],
+            accept_multiple_files=True,
+            help="Upload multiple CSV files that will be merged based on common columns"
         )
         
-        if uploaded_file is not None:
+        if uploaded_files and len(uploaded_files) > 1:
             try:
-                # Read the file
-                if uploaded_file.name.endswith('.csv'):
+                # Read all CSV files
+                dataframes = []
+                file_names = []
+                
+                st.subheader("Files Overview")
+                files_info = []
+                
+                for uploaded_file in uploaded_files:
                     df = pd.read_csv(uploaded_file)
-                else:
-                    df = pd.read_excel(uploaded_file)
-                
-                st.success(f"File loaded successfully! Shape: {df.shape}")
-                
-                # Display basic info
-                st.subheader("Dataset Preview")
-                st.dataframe(df.head(10))
-                
-                # Dataset metadata
-                col_info1, col_info2 = st.columns(2)
-                with col_info1:
-                    st.metric("Rows", df.shape[0])
-                    st.metric("Columns", df.shape[1])
-                
-                with col_info2:
-                    st.metric("Missing Values", df.isnull().sum().sum())
-                    st.metric("Memory Usage", f"{df.memory_usage(deep=True).sum() / 1024**2:.2f} MB")
-                
-                # Save dataset
-                st.subheader("Save Dataset")
-                dataset_name = st.text_input("Dataset Name", value=uploaded_file.name.split('.')[0])
-                dataset_description = st.text_area("Description", placeholder="Brief description of the dataset...")
-                
-                if st.button("Save Dataset", type="primary"):
-                    try:
-                        dataset_id = db_manager.save_dataset(
-                            name=dataset_name,
-                            description=dataset_description,
-                            data=df
-                        )
-                        st.session_state.dataset_id = dataset_id
-                        st.success(f"Dataset saved successfully with ID: {dataset_id}")
-                        st.balloons()
-                    except Exception as e:
-                        st.error(f"Error saving dataset: {str(e)}")
-                        
-            except Exception as e:
-                st.error(f"Error loading file: {str(e)}")
-    
-    with col2:
-        st.subheader("Dataset Statistics")
-        if st.session_state.dataset_id:
-            try:
-                df = db_manager.load_dataset(st.session_state.dataset_id)
-                stats = utils.get_dataset_statistics(df)
-                
-                for key, value in stats.items():
-                    st.metric(key.replace('_', ' ').title(), value)
+                    dataframes.append(df)
+                    file_names.append(uploaded_file.name)
                     
+                    files_info.append({
+                        'File': uploaded_file.name,
+                        'Rows': df.shape[0],
+                        'Columns': df.shape[1],
+                        'Column Names': ', '.join(df.columns[:5]) + ('...' if len(df.columns) > 5 else '')
+                    })
+                
+                files_df = pd.DataFrame(files_info)
+                st.dataframe(files_df, use_container_width=True)
+                
+                # Merge strategy selection
+                st.subheader("Merge Configuration")
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    merge_strategy = st.selectbox(
+                        "Merge Strategy",
+                        ["auto", "inner", "outer", "concatenate"],
+                        help="""
+                        - Auto: Automatically determine best merge approach
+                        - Inner: Keep only rows with matching keys in all files
+                        - Outer: Keep all rows, fill missing with NaN
+                        - Concatenate: Stack files vertically with source identifier
+                        """
+                    )
+                
+                with col2:
+                    # Show common columns
+                    all_columns = [set(df.columns) for df in dataframes]
+                    common_columns = set.intersection(*all_columns) if all_columns else set()
+                    
+                    st.write("**Common Columns:**")
+                    if common_columns:
+                        st.write(f"Found {len(common_columns)} common columns")
+                        for col in sorted(common_columns):
+                            st.write(f"• {col}")
+                    else:
+                        st.warning("No common columns found")
+                
+                # Merge files
+                if st.button("Merge Files", type="primary"):
+                    with st.spinner("Merging files..."):
+                        try:
+                            merged_df, merge_report = data_processor.merge_csv_files(
+                                dataframes, file_names, merge_strategy
+                            )
+                            
+                            st.session_state.current_data = merged_df
+                            st.session_state.merge_report = merge_report
+                            
+                            # Show merge results
+                            st.success("Files merged successfully!")
+                            
+                            # Merge report
+                            st.subheader("Merge Report")
+                            
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                st.metric("Files Merged", merge_report["total_files"])
+                            with col2:
+                                st.metric("Final Rows", merge_report["final_shape"][0])
+                            with col3:
+                                st.metric("Final Columns", merge_report["final_shape"][1])
+                            
+                            if merge_report.get("warnings"):
+                                st.warning("Merge Warnings:")
+                                for warning in merge_report["warnings"]:
+                                    st.write(f"• {warning}")
+                            
+                            st.write(f"**Merge Type:** {merge_report.get('merge_type', 'Unknown')}")
+                            
+                            if merge_report.get("merge_keys"):
+                                st.write(f"**Merge Keys:** {', '.join(merge_report['merge_keys'])}")
+                            
+                            # Dataset naming
+                            col1, col2 = st.columns(2)
+                            
+                            with col1:
+                                dataset_name = st.text_input(
+                                    "Dataset Name", 
+                                    value=f"merged_dataset_{len(file_names)}_files",
+                                    help="Give your merged dataset a meaningful name"
+                                )
+                            
+                            with col2:
+                                dataset_description = st.text_area(
+                                    "Dataset Description",
+                                    value=f"Merged dataset from {len(file_names)} files: {', '.join(file_names)}",
+                                    help="Describe the merged dataset"
+                                )
+                            
+                            # Save merged dataset
+                            if st.button("Save Merged Dataset", type="secondary"):
+                                if dataset_name:
+                                    try:
+                                        dataset_id = db_manager.save_dataset(
+                                            name=dataset_name,
+                                            description=dataset_description,
+                                            data=merged_df
+                                        )
+                                        st.session_state.dataset_id = dataset_id
+                                        st.success(f"Merged dataset saved! Dataset ID: {dataset_id}")
+                                        st.balloons()
+                                        
+                                    except Exception as e:
+                                        st.error(f"Error saving dataset: {str(e)}")
+                                else:
+                                    st.error("Please provide a dataset name")
+                            
+                            # Show merged dataset preview
+                            st.subheader("Merged Dataset Preview")
+                            st.dataframe(merged_df.head(10))
+                            
+                        except Exception as e:
+                            st.error(f"Error merging files: {str(e)}")
+                            st.info("Try using 'concatenate' merge strategy if files have different structures")
+                
             except Exception as e:
-                st.error(f"Error loading dataset statistics: {str(e)}")
+                st.error(f"Error reading files: {str(e)}")
+                st.info("Please ensure all files are valid CSV format")
+        
+        elif uploaded_files and len(uploaded_files) == 1:
+            st.info("You've uploaded only one file. For single file upload, please use 'Single File' mode above.")
+        
+        else:
+            st.info("Please upload at least 2 CSV files to merge them together.")
+    
+    # Show existing datasets
+    st.subheader("Existing Datasets")
+    _show_existing_datasets()
+
+def _show_existing_datasets():
+    """Show existing datasets section"""
+    datasets = db_manager.get_all_datasets()
+    
+    if datasets:
+        # Create a DataFrame for better display
+        datasets_df = pd.DataFrame(datasets, columns=['ID', 'Name', 'Description', 'Upload Date', 'File Size', 'Columns Info'])
+        
+        # Display datasets table
+        st.dataframe(datasets_df, use_container_width=True)
+        
+        # Load existing dataset
+        selected_dataset = st.selectbox(
+            "Select a dataset to load:",
+            options=[None] + [f"{row[0]} - {row[1]}" for row in datasets],
+            format_func=lambda x: "Choose a dataset..." if x is None else x
+        )
+        
+        if selected_dataset and st.button("Load Selected Dataset"):
+            dataset_id = int(selected_dataset.split(' - ')[0])
+            try:
+                df = db_manager.load_dataset(dataset_id)
+                st.session_state.current_data = df
+                st.session_state.dataset_id = dataset_id
+                st.success("Dataset loaded successfully!")
+                
+            except Exception as e:
+                st.error(f"Error loading dataset: {str(e)}")
+    else:
+        st.info("No datasets found. Upload your first dataset above!")
 
 def step_2_data_exploration():
     st.header("🔍 Step 2: Data Exploration & Cleaning")
